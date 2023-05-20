@@ -1,0 +1,116 @@
+module ir_receiver_test;
+
+//генерируем тактовую частоту 5Мгц
+reg clk;
+
+//в начале регистр clk установим в "0"
+initial
+    clk = 1'b0;
+
+//потом будем менять значение каждые 0.1 микросекунды
+//период получается 0.2 микросекунды, что соответствует 5Мгц
+always
+    #0.1 clk = ~clk;
+
+//генерируем сигнал ассинхронного сброса
+reg reset;
+
+initial
+begin
+    //вначале устанавливаем сброс
+    reset=1;
+    //через 10 мкс снимаем
+    #10;
+    reset=0;
+end
+
+//сигнал ir_input нам нужно будет генерировать
+//это тот сигнал, который приходит от микросхемы ИК приемника ILMS5360
+reg ir_input;
+
+//это сигналы от модуля ИК приемника
+//их мы подключим к передатчику serial
+wire [7:0]ir_cmd;
+wire ir_cmd_ready;
+
+//экземпляр тестируемого модуля ИК приемника
+ir_receiver ir_recv_inst(reset, clk, ir_input, ir_cmd, ir_cmd_ready);
+
+reg rx;
+wire [7:0]rx_byte;
+wire rx_start_bit,rx_stop_bit,rbyte_ready;
+wire tx,busy,tx_start_bit,tx_stop_bit,test;
+
+//экземпляр тестируемого модуля приемо-передатчика последовательного порта
+serial serial_inst(
+    reset,clk,
+    rx,
+    ir_cmd,ir_cmd_ready,
+    
+    rx_byte,rx_start_bit,rx_stop_bit,rbyte_ready,
+    tx,busy,tx_start_bit,tx_stop_bit,test
+    );
+
+integer i;
+reg [31:0]code;
+
+//генерируем сигнал от ИК приемника ILMS5360
+initial
+begin
+    rx = 1;
+    code = 0;
+    i=0;
+
+    ir_input = 1;
+    #5000;
+
+    //будем иммитировать код PLAY_PAUSE от пульта Samsung
+    code = 32'hE0E052AD;
+
+    //вначале передаем префикс
+    ir_input = 0;
+    #5000;
+    ir_input = 1;
+    #3000;
+
+    //теперь передаем побитно 32-х битный код 
+    for(i=0; i<32; i=i+1)
+    begin
+        sbit(code[31]);
+        code = code<<1;
+    end
+
+    //конец передачи кода
+    ir_input = 0;
+    #500;
+    ir_input = 1;
+end
+
+//"подпрограмма" передачи одного бита
+task sbit(input integer len);
+ begin
+    ir_input = 0;
+    #500;
+    ir_input = 1;
+    repeat(len+1) #500;
+ end
+endtask
+
+//на всю сималяцию нам хватит 60 миллисекунд
+initial
+begin
+    #60000 $finish;
+end
+
+//запишем сигналы в файл, что бы потом посмотреть в виде
+//осцилограмм
+initial
+ begin
+    $dumpfile("out.vcd");
+    $dumpvars(0,ir_receiver_test);
+ end
+    
+//initial
+//    $monitor($stime,, clk,, ); 
+    
+endmodule
